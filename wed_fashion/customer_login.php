@@ -8,7 +8,7 @@ $redirect = $_GET['redirect'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD']==='POST') {
   if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
-    $msg = 'โทเค็นไม่ถูกต้อง กรุณาลองใหม่';
+    $msg = 'รหัสหรืออีเมลไม่ถูกต้อง กรุณาลองใหม่';
   } else {
     $email = trim($_POST['email'] ?? ''); $pass = (string)($_POST['password'] ?? '');
     if ($email==='' || $pass==='') {

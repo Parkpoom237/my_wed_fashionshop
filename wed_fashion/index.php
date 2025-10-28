@@ -380,23 +380,62 @@ const closeCartBtn=document.getElementById('closeCart');
 
 /* filters */
 function getFiltered(){
-let list=[...PRODUCTS];
-if(state.category && state.category!=='ทั้งหมด' && CATEGORIES.includes(state.category)){
-list=list.filter(p=>p.category===state.category);
+  let list = [...PRODUCTS];
+
+  // ✅ ตัวช่วย normalize ใช้ได้ทุกบรรทัด
+  const norm = s => (s || '')
+    .toString()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .normalize('NFC');
+
+  /* ---------- กรองหมวด ---------- */
+  if (state.category && state.category !== 'ทั้งหมด') {
+  const norm = s => (s || '').toString().normalize('NFC').toLowerCase().replace(/\s+/g,' ').trim();
+  const cat = norm(state.category);
+
+  const inCat = (p) => {
+    const pc = norm(p.category);
+    const pn = norm(p.name);
+
+    if (pc) return pc === cat; // มีหมวดใน DB ก็ใช้ตรง ๆ
+
+    // --- fallback เดาจากชื่อสินค้า ---
+    if (cat === 'เสื้อยืด')      return pn.includes('เสื้อยืด') || pn.includes('t-shirt') || pn.includes('ทีเชิ้ต');
+    if (cat === 'นิต/ถัก')       return pn.includes('นิต') || pn.includes('ถัก') || pn.includes('คาร์ดิแกน') || pn.includes('คาร์ดิ');
+    if (cat === 'แอคเซสซอรี่')   return pn.includes('หมวก') || pn.includes('กระเป๋า') || pn.includes('accessory') || pn.includes('แอคเซส');
+    if (cat === 'เดรส')          return pn.includes('เดรส');
+    if (cat === 'เสื้อเชิ้ต')     return pn.includes('เชิ้ต');
+    if (cat === 'กางเกง')        return pn.includes('กางเกง');
+
+    return false;
+  };
+
+  list = list.filter(inCat);
 }
-if(state.query.trim()){
-const k=state.query.trim().toLowerCase();
-list=list.filter(p=>p.name.toLowerCase().includes(k)
-|| p.category.toLowerCase().includes(k)
-|| (p.tags||[]).some(t=>t.toLowerCase().includes(k)));
+
+
+  /* ---------- ค้นหาคีย์เวิร์ด ---------- */
+  if (state.query && state.query.trim()){
+    const k = norm(state.query);
+    list = list.filter(p =>
+      norm(p.name).includes(k) ||
+      norm(p.category).includes(k) ||
+      (p.tags || []).some(t => norm(t).includes(k))
+    );
+  }
+
+  /* ---------- จัดเรียง ---------- */
+  switch (state.sort){
+    case 'newest':     list.sort((a,b)=> new Date(b.created)-new Date(a.created)); break;
+    case 'price-asc':  list.sort((a,b)=> a.price-b.price); break;
+    case 'price-desc': list.sort((a,b)=> b.price-a.price); break;
+  }
+
+  return list;
 }
-switch(state.sort){
-case 'newest': list.sort((a,b)=>new Date(b.created)-new Date(a.created)); break;
-case 'price-asc': list.sort((a,b)=>a.price-b.price); break;
-case 'price-desc': list.sort((a,b)=>b.price-a.price); break;
-}
-return list;
-}
+
 
 /* ---------- การ์ดสินค้า + สไลด์ ---------- */
 function productCard(p){
@@ -484,14 +523,27 @@ initSliders();
 
 /* pills */
 function renderPills(){
-const html=CATEGORIES.map(c=>`<button class="pill ${state.category===c?'active':''}" data-cat="${c}">${c}</button>`).join('');
-pillBarSecondary.innerHTML=html;
-pillBarSecondary.querySelectorAll('.pill').forEach(btn=>{
-btn.addEventListener('click',()=>{
-state.category=btn.dataset.cat;
-pushQuery(); renderPills(); render();
-});
-});
+  if (!pillBarSecondary) return;
+
+  pillBarSecondary.innerHTML = CATEGORIES.map(c => `
+    <button type="button"
+            class="pill ${ (state.category||'') === c ? 'active' : '' }"
+            data-cat="${c}"
+            aria-pressed="${ (state.category||'') === c }">
+      ${c}
+    </button>
+  `).join('');
+
+  pillBarSecondary.querySelectorAll('.pill').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      state.category = (btn.dataset.cat || '').trim();
+      pushQuery();
+      renderPills();
+      render();
+    });
+  });
 }
 
 /* sync URL */
