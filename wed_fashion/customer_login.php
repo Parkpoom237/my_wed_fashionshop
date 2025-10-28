@@ -35,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 body{margin:0;background:#0b0d12;color:#eef2ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
 .box{max-width:360px;margin:60px auto;background:#141823;border:1px solid rgba(255,255,255,.08);padding:20px;border-radius:12px}
 input{width:100%;margin:8px 0;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:#0c0f15;color:#fff}
+input, button { box-sizing: border-box; max-width: 100%; }
 button{width:100%;padding:10px;border-radius:8px;border:0;background:#7c5cff;color:#fff;cursor:pointer}
 a{color:#7c5cff}.msg{background:#3b1e27;color:#ffd7de;padding:8px 10px;border-radius:8px;margin-bottom:8px}
 </style></head><body>

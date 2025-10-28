@@ -1,104 +1,85 @@
 <?php
 declare(strict_types=1);
+
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/_db.php';
-
-if (session_status() === PHP_SESSION_NONE) session_start();
 $pdo = db();
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-$id = isset($_GET['id']) ? (int)$_GET['id'] : (int)($_POST['id'] ?? 0);
-if ($id <= 0) { http_response_code(400); exit('Bad request'); }
-
-// ดึงออเดอร์
-$st = $pdo->prepare("SELECT id, order_no, slip_path FROM orders WHERE id=?");
-$st->execute([$id]);
-$order = $st->fetch(PDO::FETCH_ASSOC);
-if (!$order) { http_response_code(404); exit('Order not found'); }
-
-$ok = false; 
-$err = '';
-
-// ถ้ายังไม่มีสลิปเท่านั้นจึงยอมรับอัปโหลด
-if (empty($order['slip_path']) && $_SERVER['REQUEST_METHOD']==='POST' && isset($_FILES['slip'])) {
-  if ($_FILES['slip']['error'] === UPLOAD_ERR_OK) {
-    $tmp = $_FILES['slip']['tmp_name'];
-    $ext = strtolower(pathinfo($_FILES['slip']['name'], PATHINFO_EXTENSION));
-    $allowed = ['jpg','jpeg','png','pdf'];
-    if (!in_array($ext, $allowed, true)) {
-      $err = 'รองรับเฉพาะไฟล์ jpg, jpeg, png, pdf';
-    } else {
-      $newName = 'slip_'.$order['id'].'_'.date('Ymd_His').'.'.$ext;
-      $destDir = dirname(__DIR__).'/uploads';
-      if (!is_dir($destDir)) mkdir($destDir, 0777, true);
-      $dest = $destDir.'/'.$newName;
-
-      if (move_uploaded_file($tmp, $dest)) {
-        // อัปเดตฐานข้อมูล
-        $upd = $pdo->prepare("UPDATE orders SET slip_path=?, payment_status='paid', paid_at=NOW() WHERE id=?");
-        $upd->execute([$newName, $order['id']]);
-        $ok = true;
-
-        // โหลดข้อมูลใหม่หลังอัปเดต
-        $st->execute([$id]);
-        $order = $st->fetch(PDO::FETCH_ASSOC);
-      } else {
-        $err = 'อัปโหลดไฟล์ไม่สำเร็จ';
-      }
-    }
-  } else {
-    $err = 'อัปโหลดมีปัญหา (error='.$_FILES['slip']['error'].')';
-  }
+/* อนุญาตเฉพาะ POST */
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+  http_response_code(405);
+  exit('Method Not Allowed');
 }
-?>
-<!doctype html>
-<html lang="th">
-<head>
-<meta charset="utf-8">
-<title>อัปโหลดสลิป — <?= htmlspecialchars($order['order_no']) ?></title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f6f7fb}
-  .wrap{max-width:720px;margin:24px auto;padding:0 16px}
-  .card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 6px 20px rgba(0,0,0,.05)}
-  h1{margin:0 0 12px}
-  .err{background:#fee2e2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;padding:10px;margin-bottom:10px}
-  .ok{background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;border-radius:10px;padding:10px;margin-bottom:10px}
-  img.preview{max-width:320px;border:1px solid #eee;border-radius:8px;margin:10px 0}
-  .btn{background:#111827;color:#fff;border:none;border-radius:10px;padding:10px 16px;cursor:pointer;text-decoration:none;display:inline-block}
-  .muted{color:#666}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
-    <h1>อัปโหลดสลิป: <?= htmlspecialchars($order['order_no']) ?></h1>
 
-    <?php if($ok): ?>
-      <div class="ok">อัปโหลดเรียบร้อยแล้ว ✓</div>
-    <?php endif; ?>
+/* รับค่า order_id + ไฟล์ */
+$order_id = (int)($_POST['id'] ?? 0);
+if ($order_id <= 0 || empty($_FILES['slip']['tmp_name'])) {
+  http_response_code(400);
+  exit('Bad request');
+}
 
-    <?php if($err): ?>
-      <div class="err"><?= htmlspecialchars($err) ?></div>
-    <?php endif; ?>
+/* ตรวจสอบว่าออร์เดอร์มีอยู่จริง */
+$st = $pdo->prepare("SELECT id, order_no FROM orders WHERE id = ? LIMIT 1");
+$st->execute([$order_id]);
+$order = $st->fetch(PDO::FETCH_ASSOC);
+if (!$order) {
+  http_response_code(404);
+  exit('Order not found');
+}
 
-    <?php if(!empty($order['slip_path'])): ?>
-      <div class="muted">สลิปล่าสุด:</div>
-      <img class="preview" src="../uploads/<?= htmlspecialchars($order['slip_path']) ?>" alt="Payment slip">
+/* ตรวจสอบชนิดไฟล์อย่างปลอดภัย */
+$tmp  = $_FILES['slip']['tmp_name'];
+$name = (string)($_FILES['slip']['name'] ?? '');
+$ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+$allow_ext  = ['jpg','jpeg','png','webp','gif'];
 
-      <!-- ✅ ปุ่มกลับหน้าแรก (แสดงหลังอัปโหลดสำเร็จหรือมีสลิปแล้ว) -->
-      <p style="margin-top:16px;">
-        <a href="index.php" class="btn">← กลับไปหน้าแรก</a>
-      </p>
+$finfo = finfo_open(FILEINFO_MIME_TYPE);
+$mime  = finfo_file($finfo, $tmp);
+finfo_close($finfo);
+$allow_mime = ['image/jpeg','image/png','image/webp','image/gif'];
 
-    <?php else: ?>
-      <!-- ยังไม่มีสลิป: แสดงฟอร์มอัปโหลดเฉพาะกรณีนี้ -->
-      <form method="post" enctype="multipart/form-data" style="margin-top:10px">
-        <input type="hidden" name="id" value="<?= (int)$order['id'] ?>">
-        <input type="file" name="slip" accept="image/*,.pdf" required>
-        <button class="btn" type="submit">อัปโหลด</button>
-      </form>
-    <?php endif; ?>
-  </div>
-</div>
-</body>
-</html>
+if (!in_array($ext, $allow_ext, true) || !in_array($mime, $allow_mime, true)) {
+  http_response_code(415);
+  exit('Unsupported file');
+}
+
+/* โฟลเดอร์ปลายทาง “กลางโปรเจกต์” = PROJECT_ROOT/uploads/slips/{order_id}/
+   - ไฟล์นี้อยู่ใน wed_fashion/ จึงย้อนขึ้นไปหนึ่งระดับ */
+$projectRoot = realpath(__DIR__ . '/..');          // .../fashionshop
+$diskBase    = $projectRoot . '/uploads/slips';    // .../fashionshop/uploads/slips
+$dir         = $diskBase . '/' . $order_id;
+
+if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+  http_response_code(500);
+  exit('Cannot create upload directory');
+}
+
+/* ตั้งชื่อไฟล์ใหม่ให้ไม่ชนกัน */
+$ext = in_array($ext, $allow_ext, true) ? $ext : 'jpg';
+$fname = 'SLIP-' . $order_id . '-' . date('Ymd_His') . '-' . bin2hex(random_bytes(3)) . '.' . $ext;
+$dest  = $dir . '/' . $fname;
+
+/* ย้ายไฟล์ขึ้นโฟลเดอร์ปลายทาง */
+if (!@move_uploaded_file($tmp, $dest)) {
+  http_response_code(500);
+  exit('Upload failed');
+}
+
+/* เซ็ต permission แบบอ่านได้โดยเว็บเซิร์ฟเวอร์ (ไม่บังคับ) */
+@chmod($dest, 0644);
+
+/* === พาธที่เก็บลงฐานข้อมูล: “สัมพัทธ์จากรากโปรเจกต์” ===
+   ตัวอย่าง: uploads/slips/5/SLIP-5-20251028_193000-abc123.jpg */
+$webPath = 'uploads/slips/' . $order_id . '/' . $fname;
+
+/* อัปเดต DB */
+$up = $pdo->prepare("
+  UPDATE orders
+     SET slip_path = :p, payment_status = 'PENDING'
+   WHERE id = :id
+");
+$up->execute([':p' => $webPath, ':id' => $order_id]);
+
+/* กลับไปหน้า success */
+header('Location: order_success.php?id=' . $order_id);
+exit;

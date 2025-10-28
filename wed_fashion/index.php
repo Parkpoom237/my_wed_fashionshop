@@ -35,9 +35,6 @@ function color_opts_for(string $name): array {
   if (mb_stripos($n,'สลิปซาติน') !== false)              return ['ขาว','ดำ','ชมพู'];
   if (mb_stripos($n,'เบลเซอร์') !== false)               return ['ดำ','กรม'];
   if (mb_stripos($n,'คาร์ดิ') !== false)                 return ['ดำ','กรม','เทา'];
-  if (mb_stripos($n,'บักเก็ต') !== false)                return ['ดำ','เทา'];
-  if (mb_stripos($n,'กระเป๋า') !== false && mb_stripos($n,'mini') !== false)
-                                                          return ['ดำ'];
   return ['ดำ','ขาว']; // default
 }
 
@@ -45,10 +42,7 @@ function color_opts_for(string $name): array {
 function size_opts_for(string $name): array {
   $n = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $name)), 'UTF-8');
 
-  // สิ่งของที่เป็น Free size
-  if (mb_stripos($n,'หมวก') !== false)   return ['F'];
-  if (mb_stripos($n,'กระเป๋า') !== false) return ['F'];
-
+  
   // เสื้อถักริบครอป = S,M
   if (mb_stripos($n,'ริบครอป') !== false) return ['S','M'];
 
@@ -183,25 +177,11 @@ if ($rows) {
       'sizes'=>['S','M','L'],'badge'=>'NEW','created'=>'2025-09-26',
       'img'=>['assets/คาดิเเกนสีเทา.jpg','assets/คาดิเเกนสีกรม.jpg','assets/คาดิเเกนสีดำ.jpg'],
     ],
-    [
-      'id'=>'A111','name'=>'หมวกทรงบักเก็ต','price'=>200,'category'=>'แอคเซสซอรี่',
-      'tags'=>['หมวก'],
-      'colors'=>['#111827','#f3f4f6'],'color_opts'=>['ดำ','เทา'],
-      'sizes'=>['F'],'badge'=>'','created'=>'2025-08-30',
-      'img'=>['assets/หมวกสีดำ.jpg','assets/หมวกสีเทา.jpg'],
-    ],
-    [
-      'id'=>'B555','name'=>'กระเป๋าสะพาย Mini','price'=>690,'category'=>'แอคเซสซอรี่',
-      'tags'=>['กระเป๋า'],
-      'colors'=>['#e5e7eb','#0f172a'],'color_opts'=>['ดำ'],
-      'sizes'=>['F'],'badge'=>'','created'=>'2025-09-08',
-      'img'=>['assets/กระเป๋า.jpg'],
-    ],
   ];
 }
 
 /* หมวดหมู่ที่จะแสดงบน UI */
-$CATEGORIES = ['ทั้งหมด','เดรส','เสื้อยืด','เสื้อเชิ้ต','กางเกง','นิต/ถัก','แอคเซสซอรี่'];
+$CATEGORIES = ['ทั้งหมด','เดรส','เสื้อยืด','เสื้อเชิ้ต','กางเกง','นิต/ถัก',];
 
 /* initial from query */
 $init_query = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
@@ -404,7 +384,6 @@ function getFiltered(){
     // --- fallback เดาจากชื่อสินค้า ---
     if (cat === 'เสื้อยืด')      return pn.includes('เสื้อยืด') || pn.includes('t-shirt') || pn.includes('ทีเชิ้ต');
     if (cat === 'นิต/ถัก')       return pn.includes('นิต') || pn.includes('ถัก') || pn.includes('คาร์ดิแกน') || pn.includes('คาร์ดิ');
-    if (cat === 'แอคเซสซอรี่')   return pn.includes('หมวก') || pn.includes('กระเป๋า') || pn.includes('accessory') || pn.includes('แอคเซส');
     if (cat === 'เดรส')          return pn.includes('เดรส');
     if (cat === 'เสื้อเชิ้ต')     return pn.includes('เชิ้ต');
     if (cat === 'กางเกง')        return pn.includes('กางเกง');
