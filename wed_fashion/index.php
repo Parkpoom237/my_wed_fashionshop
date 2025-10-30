@@ -255,8 +255,17 @@ main{padding:18px 0 40px}
 .drawer.open{transform:translateX(0)}
 .drawer header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06)}
 .drawer .items{padding:10px 16px;overflow:auto}
-.line{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:10px 0;border-bottom:1px dashed rgba(255,255,255,.08)}
-.mini{width:54px;height:54px;border-radius:8px;background:#131a26}
+.line{
+  display:grid;
+  grid-template-columns: 1fr auto; 
+  gap:10px;
+  padding:10px 0;
+  border-bottom:1px dashed rgba(255,255,255,.08);
+}
+.qty-wrap{ display:flex; align-items:center; gap:6px; }
+.qty-form .btn{ padding:6px 10px; }
+.qty-num{ min-width:26px; text-align:center; display:inline-block; }
+
 .drawer .footer{margin-top:auto;border-top:1px solid rgba(255,255,255,.06);padding:14px 16px}
 .empty{color:var(--muted);text-align:center;padding:24px}
 footer{border-top:1px solid rgba(255,255,255,.06);padding:18px 0;color:var(--muted)}
@@ -337,7 +346,7 @@ footer{border-top:1px solid rgba(255,255,255,.06);padding:18px 0;color:var(--mut
 <footer><div class="container">© <?= date('Y') ?> fashionshop</div></footer>
 
 <script>
-/* hydrate */
+/* ====== hydrate ====== */
 const PRODUCTS = <?= $JS_PRODUCTS ?>;
 const CATEGORIES = <?= $JS_CATEGORIES ?>;
 const INITIAL = <?= $JS_INIT ?>;
@@ -345,7 +354,7 @@ const INITIAL = <?= $JS_INIT ?>;
 const state = { query: INITIAL.query||'', category: INITIAL.category||'ทั้งหมด', sort: INITIAL.sort||'featured' };
 const fmt = n => '฿' + Number(n).toLocaleString('th-TH');
 
-/* dom */
+/* ====== dom ====== */
 const grid=document.getElementById('grid');
 const pillBarSecondary=document.getElementById('pillBarSecondary');
 const sortSel=document.getElementById('sort');
@@ -358,252 +367,242 @@ const cartTotal=document.getElementById('cartTotal');
 const openCartBtn=document.getElementById('openCart');
 const closeCartBtn=document.getElementById('closeCart');
 
-/* filters */
+/* ====== filters ====== */
 function getFiltered(){
   let list = [...PRODUCTS];
+  const norm = s => (s||'').toString().trim().replace(/\s+/g,' ').toLowerCase().normalize('NFC');
 
-  // ✅ ตัวช่วย normalize ใช้ได้ทุกบรรทัด
-  const norm = s => (s || '')
-    .toString()
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .normalize('NFC');
-
-  /* ---------- กรองหมวด ---------- */
   if (state.category && state.category !== 'ทั้งหมด') {
-  const norm = s => (s || '').toString().normalize('NFC').toLowerCase().replace(/\s+/g,' ').trim();
-  const cat = norm(state.category);
+    const cat = norm(state.category);
+    list = list.filter(p=>{
+      const pc=norm(p.category), pn=norm(p.name);
+      if (pc) return pc===cat;
+      if (cat==='เสื้อยืด')   return pn.includes('เสื้อยืด')||pn.includes('t-shirt')||pn.includes('ทีเชิ้ต');
+      if (cat==='นิต/ถัก')    return pn.includes('นิต')||pn.includes('ถัก')||pn.includes('คาร์ดิแกน')||pn.includes('คาร์ดิ');
+      if (cat==='เดรส')       return pn.includes('เดรส');
+      if (cat==='เสื้อเชิ้ต') return pn.includes('เชิ้ต');
+      if (cat==='กางเกง')     return pn.includes('กางเกง');
+      return false;
+    });
+  }
 
-  const inCat = (p) => {
-    const pc = norm(p.category);
-    const pn = norm(p.name);
-
-    if (pc) return pc === cat; // มีหมวดใน DB ก็ใช้ตรง ๆ
-
-    // --- fallback เดาจากชื่อสินค้า ---
-    if (cat === 'เสื้อยืด')      return pn.includes('เสื้อยืด') || pn.includes('t-shirt') || pn.includes('ทีเชิ้ต');
-    if (cat === 'นิต/ถัก')       return pn.includes('นิต') || pn.includes('ถัก') || pn.includes('คาร์ดิแกน') || pn.includes('คาร์ดิ');
-    if (cat === 'เดรส')          return pn.includes('เดรส');
-    if (cat === 'เสื้อเชิ้ต')     return pn.includes('เชิ้ต');
-    if (cat === 'กางเกง')        return pn.includes('กางเกง');
-
-    return false;
-  };
-
-  list = list.filter(inCat);
-}
-
-
-  /* ---------- ค้นหาคีย์เวิร์ด ---------- */
   if (state.query && state.query.trim()){
     const k = norm(state.query);
     list = list.filter(p =>
       norm(p.name).includes(k) ||
       norm(p.category).includes(k) ||
-      (p.tags || []).some(t => norm(t).includes(k))
+      (p.tags||[]).some(t=>norm(t).includes(k))
     );
   }
 
-  /* ---------- จัดเรียง ---------- */
-  switch (state.sort){
+  switch(state.sort){
     case 'newest':     list.sort((a,b)=> new Date(b.created)-new Date(a.created)); break;
     case 'price-asc':  list.sort((a,b)=> a.price-b.price); break;
     case 'price-desc': list.sort((a,b)=> b.price-a.price); break;
   }
-
   return list;
 }
 
-
-/* ---------- การ์ดสินค้า + สไลด์ ---------- */
+/* ====== card & slider ====== */
 function productCard(p){
-const colorGrad = `linear-gradient(135deg, ${p.colors?.[0]||'#0b1220'}, ${p.colors?.[1]||p.colors?.[0]||'#243042'})`;
-const sizes = (p.sizes||[]).map(s => `<option value="${s}">${s}</option>`).join('');
-const colors = (p.color_opts||[]).map(c => `<option value="${c}">${c}</option>`).join('');
+  const colorGrad=`linear-gradient(135deg, ${p.colors?.[0]||'#0b1220'}, ${p.colors?.[1]||p.colors?.[0]||'#243042'})`;
+  const sizes=(p.sizes||[]).map(s=>`<option value="${s}">${s}</option>`).join('');
+  const colors=(p.color_opts||[]).map(c=>`<option value="${c}">${c}</option>`).join('');
+  const imgs=Array.isArray(p.img)?p.img:(p.img?[p.img]:[]);
+  const slides=imgs.map(src=>`<img src="${src}" alt="${p.name}">`).join('');
+  const sliderHtml = imgs.length ? `
+  <div class="slider" data-count="${imgs.length}" style="background:${colorGrad}">
+    <div class="slides">${slides}</div>
+    ${imgs.length>1?`
+      <button class="nav prev" aria-label="ก่อนหน้า">‹</button>
+      <button class="nav next" aria-label="ถัดไป">›</button>
+      <div class="dots">
+        ${imgs.map((_,i)=>`<button class="dot${i===0?' active':''}" data-i="${i}"></button>`).join('')}
+      </div>`:''}
+  </div>` : `
+  <div class="slider" style="background:${colorGrad}">
+    <div class="slides">
+      <svg viewBox="0 0 100 100" aria-hidden="true" style="width:100%;height:100%">
+        <path d="M35 18c10 6 20 6 30 0l13 10-7 10v42a6 6 0 0 1-6 6H35a6 6 0 0 1-6-6V38ล-7-10 13-10z" fill="rgba(255,255,255,.9)"/>
+      </svg>
+    </div>
+  </div>`;
 
-const imgs = Array.isArray(p.img) ? p.img : (p.img ? [p.img] : []);
-const slides = imgs.map(src => `<img src="${src}" alt="${p.name}">`).join('');
+  return `
+  <article class="card" role="listitem" aria-label="${p.name}">
+    <div class="thumb">
+      ${p.badge?`<span class="chip">${p.badge}</span>`:''}
+      ${sliderHtml}
+    </div>
+    <div class="body">
+      <h3 class="title">${p.name}</h3>
+      <div class="muted">${p.category}${(p.tags&&p.tags.length)?' · '+p.tags.join(' · '):''}</div>
+      <div class="price">${fmt(p.price)}</div>
 
-const sliderHtml = imgs.length
-? `
-<div class="slider" data-count="${imgs.length}" style="background:${colorGrad}">
-<div class="slides">${slides}</div>
-${imgs.length>1 ? `
-<button class="nav prev" aria-label="ก่อนหน้า">‹</button>
-<button class="nav next" aria-label="ถัดไป">›</button>
-<div class="dots">
-${imgs.map((_,i)=>`<button class="dot${i===0?' active':''}" data-i="${i}"></button>`).join('')}
-</div>` : ``}
-</div>`
-: `
-<div class="slider" style="background:${colorGrad}">
-<div class="slides">
-<svg viewBox="0 0 100 100" aria-hidden="true" style="width:100%;height:100%">
-<path d="M35 18c10 6 20 6 30 0l13 10-7 10v42a6 6 0 0 1-6 6H35a6 6 0 0 1-6-6V38l-7-10 13-10z" fill="rgba(255,255,255,.9)"/>
-</svg>
-</div>
-</div>`;
-
-return `
-<article class="card" role="listitem" aria-label="${p.name}">
-<div class="thumb">
-${p.badge ? `<span class="chip">${p.badge}</span>` : ``}
-${sliderHtml}
-</div>
-<div class="body">
-<h3 class="title">${p.name}</h3>
-<div class="muted">${p.category}${(p.tags&&p.tags.length)?' · '+p.tags.join(' · '):''}</div>
-<div class="price">${fmt(p.price)}</div>
-
-<form class="row" action="cart_add.php" method="post">
-<input type="hidden" name="id" value="${p.id}">
-<input type="hidden" name="name" value="${p.name.replace(/"/g,'&quot;')}">
-<input type="hidden" name="price" value="${p.price}">
-${colors ? `
-<select class="select" name="color" required>
-<option value="" hidden>สี</option>${colors}
-</select>` : ``}
-${sizes ? `<select class="select" name="size">${sizes}</select>` : `<input type="hidden" name="size" value="">`}
-<input type="hidden" name="redirect" value="back">
-<button class="btn" type="submit">เพิ่มลงตะกร้า</button>
-</form>
-</div>
-</article>`;
+      <form class="row" action="cart_add.php" method="post">
+        <input type="hidden" name="id" value="${p.id}">
+        <input type="hidden" name="name" value="${p.name.replace(/"/g,'&quot;')}">
+        <input type="hidden" name="price" value="${p.price}">
+        ${colors?`<select class="select" name="color" required><option value="" hidden>สี</option>${colors}</select>`:''}
+        ${sizes?`<select class="select" name="size">${sizes}</select>`:`<input type="hidden" name="size" value="">`}
+        <input type="hidden" name="redirect" value="back">
+        <button class="btn" type="submit">เพิ่มลงตะกร้า</button>
+      </form>
+    </div>
+  </article>`;
 }
 
-/* init sliders */
 function initSliders(){
-document.querySelectorAll('.slider').forEach(slider=>{
-const slides=slider.querySelector('.slides');
-const count=+slider.dataset.count || slides.children.length;
-if(!count) return;
-let i=0;
-const go=n=>{
-i=(n+count)%count;
-slides.style.transform=`translateX(${i*-100}%)`;
-slider.querySelectorAll('.dot').forEach((d,idx)=>d.classList.toggle('active', idx===i));
-};
-slider.querySelector('.prev')?.addEventListener('click',()=>go(i-1));
-slider.querySelector('.next')?.addEventListener('click',()=>go(i+1));
-slider.querySelectorAll('.dot').forEach(d=>d.addEventListener('click',()=>go(+d.dataset.i)));
-go(0);
-});
+  document.querySelectorAll('.slider').forEach(slider=>{
+    const slides=slider.querySelector('.slides');
+    const count=+slider.dataset.count || slides.children.length;
+    if(!count) return;
+    let i=0;
+    const go=n=>{
+      i=(n+count)%count;
+      slides.style.transform=`translateX(${i*-100}%)`;
+      slider.querySelectorAll('.dot').forEach((d,idx)=>d.classList.toggle('active', idx===i));
+    };
+    slider.querySelector('.prev')?.addEventListener('click',()=>go(i-1));
+    slider.querySelector('.next')?.addEventListener('click',()=>go(i+1));
+    slider.querySelectorAll('.dot').forEach(d=>d.addEventListener('click',()=>go(+d.dataset.i)));
+    go(0);
+  });
 }
 
-/* render */
+/* ====== render ====== */
 function render(){
-const list=getFiltered();
-grid.innerHTML = list.length ? list.map(productCard).join('') : `<div class="empty">ไม่พบสินค้า</div>`;
-sortSel.value = state.sort;
-q.value = state.query;
-initSliders();
+  const list=getFiltered();
+  grid.innerHTML = list.length ? list.map(productCard).join('') : `<div class="empty">ไม่พบสินค้า</div>`;
+  sortSel.value = state.sort;
+  q.value = state.query;
+  initSliders();
 }
 
-/* pills */
+/* ====== pills ====== */
 function renderPills(){
   if (!pillBarSecondary) return;
-
   pillBarSecondary.innerHTML = CATEGORIES.map(c => `
-    <button type="button"
-            class="pill ${ (state.category||'') === c ? 'active' : '' }"
-            data-cat="${c}"
-            aria-pressed="${ (state.category||'') === c }">
-      ${c}
-    </button>
+    <button type="button" class="pill ${ (state.category||'')===c?'active':'' }" data-cat="${c}" aria-pressed="${ (state.category||'')===c }">${c}</button>
   `).join('');
-
   pillBarSecondary.querySelectorAll('.pill').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
+    btn.addEventListener('click',e=>{
       e.preventDefault();
-      e.stopPropagation();
-      state.category = (btn.dataset.cat || '').trim();
-      pushQuery();
-      renderPills();
-      render();
+      state.category=(btn.dataset.cat||'').trim();
+      pushQuery(); renderPills(); render();
     });
   });
 }
 
-/* sync URL */
+/* ====== sync URL ====== */
 function pushQuery(){
-const p=new URLSearchParams();
-if(state.query) p.set('q',state.query);
-if(state.category && state.category!=='ทั้งหมด') p.set('category',state.category);
-if(state.sort && state.sort!=='featured') p.set('sort',state.sort);
-history.replaceState({},'',location.pathname+(p.toString()?`?${p}`:''));
+  const p=new URLSearchParams();
+  if(state.query) p.set('q',state.query);
+  if(state.category && state.category!=='ทั้งหมด') p.set('category',state.category);
+  if(state.sort && state.sort!=='featured') p.set('sort',state.sort);
+  history.replaceState({},'',location.pathname+(p.toString()?`?${p}`:''));
 }
 
-/* drawer + cart api */
-async function drawCartFromServer(){
-try{
-const r=await fetch('cart_snapshot.php',{cache:'no-store'});
-const data=await r.json(); // {items,total}
-if(!data.items || !data.items.length){
-cartItems.innerHTML='<div class="empty">ตะกร้าเปล่า</div>';
-cartTotal.textContent='฿0';
-return;
+/* ====== drawer + cart api ====== */
+async function drawCartFromServer() {
+  try {
+    const r = await fetch('cart_snapshot.php', { cache: 'no-store' });
+    const data = await r.json();
+
+    if (!data.items || !data.items.length) {
+      cartItems.innerHTML = '<div class="empty">ตะกร้าเปล่า</div>';
+      cartTotal.textContent = '฿0';
+      await refreshCartBadge();
+      return;
+    }
+
+    cartItems.innerHTML = data.items.map(it => `
+      <div class="line">
+        <div>
+          <b>${it.name}</b>
+          <small>${it.color ? `สี ${it.color} · ` : ''}ไซซ์ ${it.size || '-'} · ${fmt(it.price)} × ${it.qty}</small>
+        </div>
+        <div>
+          <form action="cart_update.php" method="post" class="qty-form" style="display:inline">
+            <input type="hidden" name="ajax" value="1">
+            <input type="hidden" name="id" value="${it.id}">
+            <input type="hidden" name="color" value="${it.color || ''}">
+            <input type="hidden" name="size" value="${it.size || ''}">
+            <button class="btn" name="qty" value="${Math.max(1, it.qty - 1)}">–</button>
+            <button class="btn" name="qty" value="${it.qty + 1}">+</button>
+          </form>
+          <form action="cart_remove.php" method="post" class="rm-form" style="display:inline;margin-left:6px">
+            <input type="hidden" name="ajax" value="1">
+            <input type="hidden" name="id" value="${it.id}">
+            <input type="hidden" name="color" value="${it.color || ''}">
+            <input type="hidden" name="size" value="${it.size || ''}">
+            <button class="btn">ลบ</button>
+          </form>
+        </div>
+      </div>
+    `).join('');
+
+    cartTotal.textContent = fmt(data.total);
+    await refreshCartBadge();
+  } catch (e) {
+    cartItems.innerHTML = '<div class="empty">โหลดตะกร้าไม่สำเร็จ</div>';
+    cartTotal.textContent = '฿0';
+  }
 }
-cartItems.innerHTML=data.items.map(it=>`
-<div class="line">
-<div class="mini"></div>
-<div>
-<b>${it.name}</b>
-<small>${it.color?`สี ${it.color} · `:''}ไซซ์ ${it.size||'-'} · ${fmt(it.price)} × ${it.qty}</small>
-</div>
-<div>
-<form action="cart_update.php" method="post" style="display:inline">
-<input type="hidden" name="id" value="${it.id}">
-<input type="hidden" name="color" value="${it.color||''}">
-<input type="hidden" name="size" value="${it.size||''}">
-<button class="btn" name="qty" value="${Math.max(1,it.qty-1)}">–</button>
-<button class="btn" name="qty" value="${it.qty+1}">+</button>
-</form>
-<form action="cart_remove.php" method="post" style="display:inline;margin-left:6px">
-<input type="hidden" name="id" value="${it.id}">
-<input type="hidden" name="color" value="${it.color||''}">
-<input type="hidden" name="size" value="${it.size||''}">
-<button class="btn">ลบ</button>
-</form>
-</div>
-</div>`).join('');
-cartTotal.textContent=fmt(data.total);
-await refreshCartBadge();
-}catch(e){
-cartItems.innerHTML='<div class="empty">โหลดตะกร้าไม่สำเร็จ</div>';
-cartTotal.textContent='฿0';
-}
-}
+
 function openDrawer(){ drawer.classList.add('open'); drawCartFromServer(); }
 function closeDrawer(){ drawer.classList.remove('open'); }
 openCartBtn?.addEventListener('click',e=>{e.preventDefault();openDrawer();});
 closeCartBtn?.addEventListener('click',e=>{e.preventDefault();closeDrawer();});
 
-/* cart badge */
+/* ====== cart badge ====== */
 async function refreshCartBadge(){
-try{
-const r=await fetch('cart_count.php',{cache:'no-store'});
-cartCountEl.textContent=await r.text();
-}catch{}
+  try{
+    const r=await fetch('cart_count.php',{cache:'no-store'});
+    cartCountEl.textContent=await r.text();
+  }catch{}
 }
 refreshCartBadge();
 if(new URLSearchParams(location.search).has('added')){
-refreshCartBadge(); history.replaceState({},'',location.pathname);
+  refreshCartBadge(); history.replaceState({},'',location.pathname);
 }
 
-/* search/sort */
+/* ====== search/sort ====== */
 q?.addEventListener('input',e=>{state.query=e.target.value;pushQuery();render();});
 clearSearch?.addEventListener('click',()=>{q.value='';state.query='';pushQuery();render();});
 sortSel?.addEventListener('change',e=>{state.sort=e.target.value;pushQuery();render();});
 document.getElementById('scrollToNew')?.addEventListener('click',()=>{
-sortSel.value='newest'; state.sort='newest';
-document.getElementById('catalog').scrollIntoView({behavior:'smooth'});
-pushQuery(); render();
+  sortSel.value='newest'; state.sort='newest';
+  document.getElementById('catalog').scrollIntoView({behavior:'smooth'});
+  pushQuery(); render();
 });
 
-/* init */
+/* ====== (สำคัญ) Event Delegation: จับ submit ของฟอร์มภายใน drawer ทีเดียว ====== */
+cartItems.addEventListener('submit', async (e) => {
+  const form = e.target.closest('form');
+  if (!form) return;
+
+  const isQty = form.classList.contains('qty-form');
+  const isRm  = form.classList.contains('rm-form');
+  if (!isQty && !isRm) return;
+
+  e.preventDefault();
+
+  const fd = new FormData(form);
+  // ให้ค่าจากปุ่มที่คลิก (+/-) ถูกส่งไปด้วย
+  const btn = e.submitter;
+  if (btn && btn.name) fd.set(btn.name, btn.value);
+  if (!fd.has('ajax')) fd.set('ajax','1');
+
+  const url = isRm ? 'cart_remove.php' : 'cart_update.php';
+  await fetch(url, { method:'POST', body: fd });
+  await drawCartFromServer();
+});
+
+/* ====== init ====== */
 renderPills(); render();
 window.addEventListener('keydown',e=>{ if(e.key==='Escape') closeDrawer(); });
 </script>
+
 </body>
 </html>

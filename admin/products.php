@@ -6,9 +6,9 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/_db.php';
 
 /* ====== PATH/URL สำหรับรูป ====== */
-define('FSHOP_WEBROOT', '/fashionshop');                       // แก้ถ้าโปรเจกต์ไม่ได้อยู่ใต้ /fashionshop
-define('UPLOAD_BASE_DIR', realpath(__DIR__ . '/..') . '/uploads'); // htdocs/fashionshop/uploads
-define('UPLOAD_BASE_URL', rtrim(FSHOP_WEBROOT, '/') . '/uploads'); // /fashionshop/uploads
+define('FSHOP_WEBROOT', '/fashionshop');
+define('UPLOAD_BASE_DIR', realpath(__DIR__ . '/..') . '/uploads');
+define('UPLOAD_BASE_URL', rtrim(FSHOP_WEBROOT, '/') . '/uploads');
 
 $pdo = db();
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -40,19 +40,35 @@ function column_exists(PDO $pdo, string $table, string $column): bool {
   $st = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?"); $st->execute([$column]);
   return (bool)$st->fetch();
 }
+
+/**
+ * Inventory view (อ่านอย่างเดียว)
+ * รุ่นนี้ให้ “หลังบ้าน” ใช้ค่าใน products.stock_* เป็นแหล่งความจริง
+ * เพื่อให้ตัวเลขตรงกับที่แก้ใน phpMyAdmin
+ */
 function build_inventory_subquery(PDO $pdo): string {
-  $candidates = ['XS'=>'stock_xs','S'=>'stock_s','M'=>'stock_m','L'=>'stock_l','XL'=>'stock_xl','XXL'=>'stock_xxl','F'=>'stock_f'];
+  $cmap = [
+    'XS'=>'stock_xs','S'=>'stock_s','M'=>'stock_m',
+    'L'=>'stock_l','XL'=>'stock_xl','XXL'=>'stock_xxl','F'=>'stock_f'
+  ];
   $parts = [];
-  foreach ($candidates as $label=>$col) {
-    if (column_exists($pdo,'products',$col)) {
-      $parts[] = "SELECT id AS product_id, '$label' AS size, $col AS stock FROM products WHERE $col IS NOT NULL";
+  foreach ($cmap as $label=>$col) {
+    $st = $pdo->prepare("SHOW COLUMNS FROM `products` LIKE ?");
+    $st->execute([$col]);
+    if ($st->fetch()) {
+      $parts[] = "SELECT id AS product_id, '$label' AS size, COALESCE($col,0) AS stock FROM products";
     }
   }
-  return $parts ? implode("\nUNION ALL\n",$parts) : "SELECT NULL AS product_id, NULL AS size, NULL AS stock WHERE 1=0";
+  if (!$parts) {
+    return "SELECT NULL AS product_id, NULL AS size, NULL AS stock WHERE 1=0";
+  }
+  return implode("\nUNION ALL\n", $parts);
 }
+
 function stock_column_for_size(string $size): ?string {
   return match (strtoupper(trim($size))) {
-    'XS'=>'stock_xs','S'=>'stock_s','M'=>'stock_m','L'=>'stock_l','XL'=>'stock_xl','XXL'=>'stock_xxl','F'=>'stock_f', default=>null,
+    'XS'=>'stock_xs','S'=>'stock_s','M'=>'stock_m','L'=>'stock_l','XL'=>'stock_xl','XXL'=>'stock_xxl','F'=>'stock_f',
+    default=>null,
   };
 }
 function sizes_available(PDO $pdo): array {
@@ -67,7 +83,6 @@ try {
     name VARCHAR(191) UNIQUE NOT NULL
   ) ENGINE=InnoDB");
 
-  // seed หมวดหมู่คงที่
   $DEFAULT_CATEGORIES = ['เดรส','เสื้อยืด','เสื้อเชิ้ต','กางเกง','นิต/ถัก'];
   $have = $pdo->query("SELECT name FROM categories")->fetchAll(PDO::FETCH_COLUMN) ?: [];
   foreach ($DEFAULT_CATEGORIES as $nm) {
@@ -121,9 +136,16 @@ function get_products_with_inventory(PDO $pdo): array {
     SELECT 
       p.id, p.name, p.color, p.price, p.badge, p.category_id,
       c.name AS category_name,
-      COALESCE(CONCAT('[', GROUP_CONCAT(CONCAT('{\"size\":\"', i.size, '\",\"stock\":', COALESCE(i.stock,0), '}') ORDER BY i.size SEPARATOR ','), ']'), '[]') AS inventory,
+      COALESCE(CONCAT('[', GROUP_CONCAT(
+        DISTINCT CONCAT('{\"size\":\"', i.size, '\",\"stock\":', COALESCE(i.stock,0), '}')
+        ORDER BY i.size SEPARATOR ','
+      ), ']'), '[]') AS inventory,
       (
-        SELECT COALESCE(CONCAT('[', GROUP_CONCAT(CONCAT('{\"id\":', pi.id, ',\"url\":\"', REPLACE(pi.url,'\"','\\\"'), '\",\"sort_order\":', COALESCE(pi.sort_order,0), '}') ORDER BY pi.sort_order SEPARATOR ','), ']'), '[]')
+        SELECT COALESCE(CONCAT('[', GROUP_CONCAT(
+          CONCAT('{\"id\":', pi.id, ',\"url\":\"', REPLACE(pi.url,'\"','\\\"'),
+                 '\",\"sort_order\":', COALESCE(pi.sort_order,0), '}')
+          ORDER BY pi.sort_order SEPARATOR ','
+        ), ']'), '[]')
         FROM product_images pi WHERE pi.product_id = p.id
       ) AS images
     FROM products p
@@ -139,9 +161,16 @@ function get_product_detail(PDO $pdo, string $id): ?array {
   $sql = "
     SELECT 
       p.*, c.name AS category_name,
-      COALESCE(CONCAT('[', GROUP_CONCAT(CONCAT('{\"size\":\"', i.size, '\",\"stock\":', COALESCE(i.stock,0), '}') ORDER BY i.size SEPARATOR ','), ']'), '[]') AS inventory,
+      COALESCE(CONCAT('[', GROUP_CONCAT(
+        DISTINCT CONCAT('{\"size\":\"', i.size, '\",\"stock\":', COALESCE(i.stock,0), '}')
+        ORDER BY i.size SEPARATOR ','
+      ), ']'), '[]') AS inventory,
       (
-        SELECT COALESCE(CONCAT('[', GROUP_CONCAT(CONCAT('{\"id\":', pi.id, ',\"url\":\"', REPLACE(pi.url,'\"','\\\"'), '\",\"sort_order\":', COALESCE(pi.sort_order,0), '}') ORDER BY pi.sort_order SEPARATOR ','), ']'), '[]')
+        SELECT COALESCE(CONCAT('[', GROUP_CONCAT(
+          CONCAT('{\"id\":', pi.id, ',\"url\":\"', REPLACE(pi.url,'\"','\\\"'),
+                 '\",\"sort_order\":', COALESCE(pi.sort_order,0), '}')
+          ORDER BY pi.sort_order SEPARATOR ','
+        ), ']'), '[]')
         FROM product_images pi WHERE pi.product_id = p.id
       ) AS images
     FROM products p
@@ -153,24 +182,35 @@ function get_product_detail(PDO $pdo, string $id): ?array {
   $row=$st->fetch(PDO::FETCH_ASSOC); return $row ?: null;
 }
 
-/* อัปเดตสินค้า + สต็อก */
+/* อัปเดตสินค้า + สต็อกคอลัมน์เดิมใน products (ไม่ไปยุ่ง inventory) */
 function update_product(PDO $pdo, string $id, string $name, int $price, array $inventory, ?int $category_id, ?string $badge, ?string $color): bool {
   $pdo->beginTransaction();
   try {
+    // อัปเดตฟิลด์ทั่วไป
     $pdo->prepare("UPDATE products SET name=?, price=?, category_id=?, badge=?, color=? WHERE id=?")
         ->execute([$name,$price,$category_id,$badge,$color,$id]);
 
+    // อัปเดตสต็อกราย size
     $set=[]; $params=[];
     foreach (sizes_available($pdo) as $sz) {
       $col = stock_column_for_size($sz); if(!$col) continue;
-      if (array_key_exists($sz,$inventory)) { $set[]="$col = ?"; $params[] = max(0,(int)$inventory[$sz]); }
+      if (array_key_exists($sz,$inventory)) {
+        $set[]="$col = ?"; 
+        $params[] = max(0,(int)$inventory[$sz]);
+      }
     }
     if ($set) {
       $params[] = $id;
       $pdo->prepare("UPDATE products SET ".implode(', ',$set)." WHERE id = ?")->execute($params);
     }
-    $pdo->commit(); return true;
-  } catch(Throwable $e){ $pdo->rollBack(); error_log("update_product error: ".$e->getMessage()); return false; }
+
+    $pdo->commit();
+    return true;
+  } catch(Throwable $e){
+    $pdo->rollBack();
+    error_log("update_product error: ".$e->getMessage());
+    return false;
+  }
 }
 
 /* อัปโหลดรูป */
@@ -210,7 +250,10 @@ if ($action === 'list') {
   $products = get_products_with_inventory($pdo);
   if ($q !== '') {
     $q_mb = mb_strtolower($q,'UTF-8');
-    $products = array_values(array_filter($products, fn($p)=> mb_stripos($p['name'] ?? '', $q_mb) !== false));
+    $products = array_values(array_filter(
+      $products,
+      fn($p)=> mb_stripos(mb_strtolower($p['name'] ?? '','UTF-8'), $q_mb) !== false
+    ));
   }
   if ($cat !== '' && ctype_digit($cat)) {
     $products = array_values(array_filter($products, fn($p)=> (string)($p['category_id'] ?? '') === $cat));
@@ -357,7 +400,7 @@ if ($action === 'insert' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
   $id    = trim($_POST['id'] ?? '');
   $name  = trim($_POST['name'] ?? '');
-  $color = trim((string)($_POST['color'] ?? '')) ?: null;
+  $color = trim((string)$_POST['color'] ?? '') ?: null;
   $price = (int)($_POST['price'] ?? 0);
   $badge = $_POST['badge'] !== '' ? $_POST['badge'] : null;
   $category_id = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
@@ -440,10 +483,11 @@ if ($action === 'edit' && isset($_GET['id'])) {
 
       <h3>สต็อก</h3>
       <?php $invMap=[]; if($inv) foreach($inv as $r) $invMap[strtoupper($r['size'])]=(int)$r['stock'];
+      $sizeList = sizes_available($pdo);
       foreach($sizeList as $sz): $cur=$invMap[$sz] ?? 0; ?>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
           <div style="width:120px"><strong><?= htmlspecialchars($sz) ?></strong></div>
-          <div><input type="number" name="stock[<?= htmlspecialchars($sz) ?>]" value="<?= (int)$cur ?>"></div>
+          <div><input type="number" name="stock[<?= htmlspecialchars($sz) ?>]" value="<?= (int)$cur ?>" min="0"></div>
         </div>
       <?php endforeach; ?>
 
@@ -518,7 +562,7 @@ if ($action === 'delete_image' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 /* ---- DELETE PRODUCT ---- */
 if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  $id = (string)($_POST['id'] ?? '');
+  $id = (string)$_POST['id'] ?? '';
   if ($id !== '') {
     $imgs = $pdo->prepare("SELECT id, url FROM product_images WHERE product_id = ?");
     $imgs->execute([$id]);
@@ -528,7 +572,6 @@ if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
       $abs = rtrim(UPLOAD_BASE_DIR,'/').'/'.ltrim($rel,'/');
       if (is_file($abs)) @unlink($abs);
     }
-    // ลบโฟลเดอร์สินค้า (ถ้าว่าง)
     $prodDir = rtrim(UPLOAD_BASE_DIR,'/') . '/' . preg_replace('/[^a-zA-Z0-9_-]/','',$id);
     if (is_dir($prodDir)) @rmdir($prodDir);
 

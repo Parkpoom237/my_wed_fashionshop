@@ -2,7 +2,30 @@
 // fashionshop/admin/index.php
 declare(strict_types=1);
 
-require_once __DIR__ . '/config.php';
+// ใช้ของโฟลเดอร์ wed_fashion
+require_once __DIR__ . '/../wed_fashion/config.php';
+require_once __DIR__ . '/../wed_fashion/_db.php';
+require_once __DIR__ . '/../wed_fashion/inventory_lib.php';
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id'])) {
+  $pid = $_POST['id'];
+  $sizes = ['XS','S','M','L','XL','XXL'];
+  foreach ($sizes as $sz) {
+    $field = 'stock_'.strtolower($sz);
+    if (isset($_POST[$field])) {
+      $qty = (int)$_POST[$field];
+      $st = $pdo->prepare("
+        INSERT INTO inventory (product_id, size, stock)
+        VALUES (:pid, :sz, :qty)
+        ON DUPLICATE KEY UPDATE stock = :qty
+      ");
+      $st->execute([':pid'=>$pid, ':sz'=>$sz, ':qty'=>$qty]);
+    }
+  }
+  echo "<p>✅ อัปเดตสต็อกสำเร็จ!</p>";
+}
+
 if (!isset($_SESSION['admin_id'])) { header('Location: login.php'); exit; }
 if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
 $csrf = $_SESSION['csrf'];
@@ -62,6 +85,37 @@ function orderStatusTH($status) {
   $up = strtoupper((string)$status);
   return $map[$up] ?? $up;
 }
+
+/* ✅ ตัดสต็อกเมื่อสถานะเปลี่ยน (ชำระแล้ว/ยกเลิก) */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id'], $_POST['action'])) {
+    $orderId = (int)$_POST['id'];
+    $action  = trim($_POST['action']);
+
+    // อ่านสถานะปัจจุบันของออเดอร์
+    $st = $pdo->prepare("SELECT payment_status, status FROM orders WHERE id=?");
+    $st->execute([$orderId]);
+    $old = $st->fetch(PDO::FETCH_ASSOC);
+
+    if ($old) {
+        $wasPaid = ($old['payment_status'] === 'PAID');
+        $wasCancelled = ($old['status'] === 'CANCELLED');
+
+        if ($action === 'cancel' && !$wasCancelled) {
+            // ยกเลิกออเดอร์ → คืนสต็อก
+            $pdo->prepare("UPDATE orders SET status='CANCELLED' WHERE id=?")->execute([$orderId]);
+            update_inventory($pdo, $orderId, 'increase');
+        }
+
+        if ($action === 'mark_paid' && !$wasPaid) {
+            // ทำเครื่องหมายว่าชำระแล้ว → ตัดสต็อก
+            $pdo->prepare("UPDATE orders SET payment_status='PAID' WHERE id=?")->execute([$orderId]);
+            update_inventory($pdo, $orderId, 'decrease');
+        }
+    }
+
+    header('Location: index.php');
+    exit;
+}
 ?>
 <!doctype html>
 <html lang="th">
@@ -116,7 +170,7 @@ function orderStatusTH($status) {
         <td>
           <a class="btn" href="order_detail.php?id=<?= (int)$r['id'] ?>">เปิด</a>
           <?php if (!in_array(strtoupper((string)$r['status']), ['CANCELLED','DONE'], true)): ?>
-            <form class="inline" method="post" action="update_order.php"
+            <form class="inline" method="post" action=""
                   onsubmit="return confirm('ยกเลิกออเดอร์นี้ใช่ไหม?');">
               <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
               <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">

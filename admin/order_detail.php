@@ -1,32 +1,41 @@
 <?php
-// fashionshop/admin/order_detail.php
 declare(strict_types=1);
-require_once __DIR__ . '/config.php';
+session_start();
+
+require_once __DIR__ . '/../wed_fashion/config.php';
+require_once __DIR__ . '/../wed_fashion/_db.php';
+require_once __DIR__ . '/../wed_fashion/inventory_lib.php';
+
 
 $pdo = db();
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-// ต้องล็อกอินก่อน
+/* ---------- ต้องล็อกอินก่อน ---------- */
 if (!isset($_SESSION['admin_id'])) {
   header('Location: login.php');
   exit;
 }
 
-// CSRF
-if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
+/* ---------- CSRF token ---------- */
+if (empty($_SESSION['csrf'])) {
+  $_SESSION['csrf'] = bin2hex(random_bytes(16));
+}
 $csrf = $_SESSION['csrf'];
 
+/* ---------- รับพารามิเตอร์ ---------- */
 $id = (int)($_GET['id'] ?? 0);
 if ($id <= 0) { http_response_code(400); exit('Bad request'); }
 
-// ====== ดึงข้อมูลออเดอร์ ======
+/* ---------- ดึงข้อมูลคำสั่งซื้อ ---------- */
 $st = $pdo->prepare("
   SELECT
-    id, order_no, customer_name, customer_email, customer_phone, address,
-    COALESCE(payment_method,'') AS payment_method,
+    id,
+    order_no,
+    customer_name, customer_email, customer_phone, address,
+    COALESCE(payment_method,'')      AS payment_method,
     COALESCE(payment_status,'PENDING') AS payment_status,
-    COALESCE(status,'NEW') AS status,
-    COALESCE(slip_path,'') AS slip_path,
+    COALESCE(status,'NEW')           AS status,
+    COALESCE(slip_path,'')           AS slip_path,
     created_at
   FROM orders
   WHERE id = ?
@@ -36,7 +45,7 @@ $st->execute([$id]);
 $order = $st->fetch(PDO::FETCH_ASSOC);
 if (!$order) { http_response_code(404); exit('Order not found'); }
 
-// ====== ดึงรายการสินค้า ======
+/* ---------- ดึงรายการสินค้า ---------- */
 $it = $pdo->prepare("
   SELECT product_id, name, size, qty, price,
          (COALESCE(price,0) * COALESCE(qty,0)) AS line_total
@@ -47,23 +56,34 @@ $it = $pdo->prepare("
 $it->execute([$id]);
 $items = $it->fetchAll(PDO::FETCH_ASSOC);
 
+/* ---------- helper ---------- */
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
-// label ภาษาไทย
-function payLabelTH($pm, $slip){
+function payLabelTH($pm, $slipPath): string {
   $up = strtoupper((string)$pm);
   if (in_array($up, ['CARD','TRANSFER','BANK','PROMPTPAY'], true)) return 'โอนเงิน';
   if ($up === 'COD') return 'COD';
-  if (!empty($slip)) return 'โอนเงิน';
+  if (!empty($slipPath)) return 'โอนเงิน';
   return '—';
 }
-function payStatusTH($s){
-  $map=['PENDING'=>'รอตรวจสอบ','PAID'=>'ชำระแล้ว','FAILED'=>'ไม่สำเร็จ','CANCELLED'=>'ยกเลิกแล้ว'];
+function payStatusTH($s): string {
+  $map = [
+    'PENDING'   => 'รอตรวจสอบ',
+    'PAID'      => 'ชำระแล้ว',
+    'FAILED'    => 'ไม่สำเร็จ',
+    'CANCELLED' => 'ยกเลิกแล้ว',
+  ];
   $up = strtoupper((string)$s);
   return $map[$up] ?? $up;
 }
-function orderStatusTH($s){
-  $map=['NEW'=>'ใหม่','PROCESSING'=>'กำลังดำเนินการ','SHIPPED'=>'จัดส่งแล้ว','DONE'=>'สำเร็จ','CANCELLED'=>'ยกเลิกแล้ว'];
+function orderStatusTH($s): string {
+  $map = [
+    'NEW'        => 'ใหม่',
+    'PROCESSING' => 'กำลังดำเนินการ',
+    'SHIPPED'    => 'จัดส่งแล้ว',
+    'DONE'       => 'สำเร็จ',
+    'CANCELLED'  => 'ยกเลิกแล้ว',
+  ];
   $up = strtoupper((string)$s);
   return $map[$up] ?? $up;
 }
@@ -76,21 +96,22 @@ function orderStatusTH($s){
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{--ink:#1f2937;--muted:#6b7280;--bg:#f6f7fb;--brand:#4f6ed9;--danger:#e11d48;}
+*{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Inter,Arial}
 .wrap{max-width:1000px;margin:26px auto;padding:0 16px}
 .card{background:#fff;border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px rgba(0,0,0,.06);margin-bottom:16px}
 .h1{font-size:1.6rem;margin:0 0 6px}
 .badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
 .badge.gray{background:#e5e7eb;color:#374151}
-.table{width:100%;border-collapse:collapse}
-.table th,.table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:right}
-.table th:first-child,.table td:first-child{text-align:left}
 .small{color:var(--muted);font-size:13px}
-.btn{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;border-radius:8px;padding:10px 14px}
+.btn{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;border-radius:8px;padding:10px 14px;border:0;cursor:pointer}
 .btn.gray{background:#374151}
 .btn.danger{background:var(--danger)}
 img.slip{max-width:300px;border-radius:10px;border:1px solid #e5e7eb;display:block}
 form.inline{display:inline}
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:right}
+.table th:first-child,.table td:first-child{text-align:left}
 .grid{display:grid;grid-template-columns:1fr 360px;gap:16px}
 @media (max-width:960px){.grid{grid-template-columns:1fr}}
 label{display:block;font-weight:600;margin:10px 0 6px}
@@ -101,8 +122,9 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
 <body>
 <div class="wrap">
 
+  <!-- หัวเรื่อง -->
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div>
         <div class="h1">คำสั่งซื้อ: <b><?= h($order['order_no']) ?></b></div>
         <div>
@@ -112,7 +134,10 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
           <span class="badge gray small">เมื่อ: <?= h((string)$order['created_at']) ?></span>
         </div>
       </div>
-      <form class="inline" method="post" action="update_order.php" onsubmit="return confirm('ยืนยันยกเลิกออเดอร์นี้?');">
+
+      <!-- ปุ่มยกเลิก -->
+      <form class="inline" method="post" action="update_order.php"
+            onsubmit="return confirm('ยืนยันยกเลิกออเดอร์นี้?');">
         <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
         <input type="hidden" name="id" value="<?= (int)$order['id'] ?>">
         <input type="hidden" name="action" value="cancel">
@@ -134,7 +159,7 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
     <div class="card">
       <?php if (!empty($order['slip_path'])): ?>
         <p class="small" style="margin:0 0 6px">สลิปชำระเงิน:</p>
-        <img class="slip" src="../<?= h($order['slip_path']) ?>" alt="Slip">
+        <img class="slip" src="../<?= h(ltrim($order['slip_path'],'/')) ?>" alt="Slip">
       <?php else: ?>
         <p class="small">ยังไม่มีสลิปแนบ</p>
       <?php endif; ?>
@@ -156,8 +181,8 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
               <td><?= h($it['name']) ?></td>
               <td><?= h($it['size']) ?></td>
               <td><?= (int)$it['qty'] ?></td>
-              <td>฿<?= number_format((float)$it['price'],2) ?></td>
-              <td>฿<?= number_format((float)$it['line_total'],2) ?></td>
+              <td>฿<?= number_format((float)$it['price'], 2) ?></td>
+              <td>฿<?= number_format((float)$it['line_total'], 2) ?></td>
             </tr>
           <?php endforeach; ?>
         </tbody>
@@ -179,11 +204,13 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
             $opts = [
               'TRANSFER' => 'โอนเงิน',
               'COD'      => 'COD',
-              ''         => '— (ไม่ระบุ)'
+              ''         => '— (ไม่ระบุ)',
             ];
-            foreach ($opts as $val=>$txt):
+            foreach ($opts as $val => $txt):
           ?>
-            <option value="<?= h($val) ?>" <?= ($pm===$val)?'selected':''; ?>><?= h($txt) ?></option>
+            <option value="<?= h($val) ?>" <?= ($pm === $val) ? 'selected' : '' ?>>
+              <?= h($txt) ?>
+            </option>
           <?php endforeach; ?>
         </select>
 
@@ -195,11 +222,13 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
               'PENDING'   => 'รอตรวจสอบ',
               'PAID'      => 'ชำระแล้ว',
               'FAILED'    => 'ไม่สำเร็จ',
-              'CANCELLED' => 'ยกเลิกแล้ว'
+              'CANCELLED' => 'ยกเลิกแล้ว',
             ];
-            foreach ($ps_opts as $val=>$txt):
+            foreach ($ps_opts as $val => $txt):
           ?>
-            <option value="<?= h($val) ?>" <?= ($ps===$val)?'selected':''; ?>><?= h($txt) ?></option>
+            <option value="<?= h($val) ?>" <?= ($ps === $val) ? 'selected' : '' ?>>
+              <?= h($txt) ?>
+            </option>
           <?php endforeach; ?>
         </select>
 
@@ -212,11 +241,13 @@ select{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;backg
               'PROCESSING' => 'กำลังดำเนินการ',
               'SHIPPED'    => 'จัดส่งแล้ว',
               'DONE'       => 'สำเร็จ',
-              'CANCELLED'  => 'ยกเลิกแล้ว'
+              'CANCELLED'  => 'ยกเลิกแล้ว',
             ];
-            foreach ($os_opts as $val=>$txt):
+            foreach ($os_opts as $val => $txt):
           ?>
-            <option value="<?= h($val) ?>" <?= ($os===$val)?'selected':''; ?>><?= h($txt) ?></option>
+            <option value="<?= h($val) ?>" <?= ($os === $val) ? 'selected' : '' ?>>
+              <?= h($txt) ?>
+            </option>
           <?php endforeach; ?>
         </select>
 
