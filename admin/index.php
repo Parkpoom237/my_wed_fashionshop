@@ -185,10 +185,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id'], $_POST['action'
   </table>
 
   <footer>
-    <a class="btn" href="products.php">จัดการสินค้า</a>
-    <a class="btn" href="customers.php">ข้อมูลลูกค้า</a>
-    <a class="btn" href="logout.php">🚪 ออกจากระบบ</a>
-  </footer>
+  <a class="btn" href="products.php">จัดการสินค้า</a>
+  <a class="btn" href="customers.php">ข้อมูลลูกค้า</a>
+  <a class="btn" href="sales_report.php">รายงานยอดขาย</a>
+  <a class="btn" href="logout.php">🚪 ออกจากระบบ</a>
+</footer>
 </main>
 </body>
 </html>
