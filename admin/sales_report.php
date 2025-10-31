@@ -61,6 +61,31 @@ $st2 = $pdo->prepare($sumSql);
 $st2->execute($params);
 $sum = $st2->fetch(PDO::FETCH_ASSOC) ?: ['orders'=>0,'items'=>0,'total'=>0];
 
+/* ---------- NEW: Top-selling products (10 อันดับ) ---------- */
+$topSql = "
+  SELECT 
+      oi.product_id,
+      COALESCE(p.name, oi.name) AS product_name,
+      SUM(oi.qty) AS total_qty,
+      SUM(
+        CASE 
+          WHEN oi.line_total IS NOT NULL AND oi.line_total > 0
+          THEN oi.line_total
+          ELSE oi.qty * oi.price
+        END
+      ) AS total_amount
+  FROM orders o
+  JOIN order_items oi ON oi.order_id = o.id
+  LEFT JOIN products p ON p.id = oi.product_id
+  $cond
+  GROUP BY oi.product_id, product_name
+  ORDER BY total_amount DESC
+  LIMIT 10
+";
+$st3 = $pdo->prepare($topSql);
+$st3->execute($params);
+$top_products = $st3->fetchAll(PDO::FETCH_ASSOC);
+
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 ?>
 <!doctype html>
@@ -82,6 +107,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
   th{background:#f6f8fc}
   .summary{display:flex;gap:16px;margin:14px 0 24px;flex-wrap:wrap}
   .card{background:#f6f8fc;border:1px solid #e6e9f2;border-radius:10px;padding:12px 16px;min-width:200px}
+  .section-title{margin-top:36px;font-size:1.2rem}
 </style>
 </head>
 <body>
@@ -126,6 +152,31 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
           <td><?= number_format((int)$r['orders']) ?></td>
           <td><?= number_format((int)$r['items']) ?></td>
           <td>฿<?= number_format((float)$r['total'],2) ?></td>
+        </tr>
+      <?php endforeach; endif; ?>
+    </tbody>
+  </table>
+
+  <!-- NEW: Top-selling products table -->
+  <h3 class="section-title">🏆 สินค้าที่ขายดีที่สุด (Top 10)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ลำดับ</th>
+        <th>สินค้า</th>
+        <th>จำนวนที่ขาย</th>
+        <th>ยอดรวม (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php if (!$top_products): ?>
+        <tr><td colspan="4">ยังไม่มีข้อมูลสินค้าขายดีในช่วงที่เลือก</td></tr>
+      <?php else: foreach ($top_products as $i => $p): ?>
+        <tr>
+          <td><?= $i + 1 ?></td>
+          <td><?= h($p['product_name']) ?></td>
+          <td><?= number_format((int)$p['total_qty']) ?></td>
+          <td>฿<?= number_format((float)$p['total_amount'], 2) ?></td>
         </tr>
       <?php endforeach; endif; ?>
     </tbody>
